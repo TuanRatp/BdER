@@ -1,14 +1,11 @@
-from re import A
 import PySimpleGUI as sg
 
-from appDefine import *
-
-from matplotlib.ticker import NullFormatter  # useful for `logit` scale
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib
 matplotlib.use('TkAgg')
+
+import numpy as np
 
 import pyvisa
 rm = pyvisa.ResourceManager('@py')
@@ -20,6 +17,7 @@ import os
 import threading
 THREAD_EVENT = '-THREAD-'
 THREAD_MESURE = '-THREAD_MESURE-'
+THREAD_ANALYSE = '-THREAD_ANALYSE-'
 
 """ 
 
@@ -952,9 +950,12 @@ def draw_figure(canvas, figure):
 #
 # # Goal is to have your plot contained in the variable  "fig"
 
-fig = matplotlib.figure.Figure(figsize=(3, 2), dpi=100)
-t = np.arange(0, 3, .01)
-fig.add_subplot(111).plot(t, 2 * np.sin(2 * np.pi * t))
+def delete_figure_agg(figure_agg):
+    figure_agg.get_tk_widget().forget()
+    #plt.close('all')
+    #plt.cla()
+    plt.clf()
+
 
 
 
@@ -981,19 +982,27 @@ appareil_layout = [[sg.Button('Connecter',key='-appareil_connect-'),sg.Button('A
 
 contact_layout = [[sg.Text('STF/SFS/HSP (dinh-tuan.nguyen@ratp.fr)',justification='left')]]
 
-debug_layout = [[sg.Button('Debug'),sg.Button('Exit')]]
+debug_layout = [[sg.Button('Debug')]]
 
 left_col = [[sg.Frame('Configuration', agilent_layout,expand_x=True)],
             [sg.Frame("Connexion d'appareils", appareil_layout,expand_x=True)],
-            [sg.Button('Start'),sg.Button('Stop')],
+            [sg.Button('Start'),sg.Button('Stop'),sg.Button('Exit')],
             [sg.Frame('Debug session',debug_layout)],
             ]
 
-right_col=[[sg.Input(default_text=os.path.expanduser("~\\"),key='-File-',size=(30,1)),sg.FolderBrowse(button_text='Open')],
-           [sg.Combo(['RL1','RL2','RL3','RL4','RL5','RL6','RL7','RL8','RL9','RL10'],default_value='RL1',key='-relais_select-'),sg.Combo(['T1','T3','T5'],default_value='T1',key='-contact_select-')],
+""" right_col=[[sg.Input(default_text=os.path.expanduser("~\\"),key='-File-',size=(30,2)),sg.FolderBrowse(button_text='Open')],
+           [sg.Combo(['RL1','RL2','RL3','RL4','RL5','RL6','RL7','RL8','RL9','RL10'],default_value='RL1',key='-relais_select-'),sg.Combo(['T1','T3','T5'],default_value='T1',key='-contact_select-'),sg.Button('Tracer'),sg.Button('Effacer')],
            [sg.Canvas(key='-canvas-')],
            [sg.Text('Commutations en cours: '),sg.Multiline(size=10,key='-nbr_commutations-',reroute_stdout=False, write_only=True),sg.Button('Clear',key='-app_state-',button_color=('white','green'))],
            [sg.Table(values=[],key='-table_mesure-',headings=['Nombre de commutations','T1','T3','T5'],expand_x=True,auto_size_columns=True,display_row_numbers=False,vertical_scroll_only=True)]
+        ] """
+
+right_col=[[sg.Input(default_text=os.path.expanduser("~\\"),key='-File-',size=(30,2)),sg.FolderBrowse(button_text='Open')],
+           [sg.Combo(['RL1','RL2','RL3','RL4','RL5','RL6','RL7','RL8','RL9','RL10'],default_value='RL1',key='-relais_select-'),sg.Combo(['T1','T3','T5'],default_value='T1',key='-contact_select-'),sg.Button('Tracer'),sg.Button('Effacer')],
+           [sg.Canvas(key='-canvas-')],
+           [sg.Text('Commutations en cours: '),sg.Multiline(size=10,key='-nbr_commutations-',reroute_stdout=False, write_only=True),sg.Button('Clear',key='-app_state-',button_color=('white','green'))],
+           [sg.Button('Analyser')],
+           [sg.Multiline('',size=(48,10),key='-output-',autoscroll = True,expand_y = True)]
         ]
 
 layout = [[sg.Menu(menu_bar)],
@@ -1004,40 +1013,77 @@ layout = [[sg.Menu(menu_bar)],
 
 window = sg.Window("BdER",layout,default_element_size=(12,1),grab_anywhere=True,resizable=True,finalize=True,element_justification='center')
 
-fig_canvas_agg = draw_figure(window['-canvas-'].TKCanvas,fig)
 
-count=1
+count=0
 mesure_is_finished = False
 stop_mesure = False
+stop_analyse = False
 t1_state = True
 
 def threadCommutationcyclic(window,count_t,freq,stop):
-    #window.write_event_value('-THREAD-',count_t)
-    while (count_t % freq != 0) :
-        if stop():
-            #agilentOutputOff(agilent)
-            break
+    window.write_event_value('-THREAD-',count_t)
+    if (count_t == 0):
         #agilentOutputOn(agilent)
         sleep(1)
         #agilentOutputOff(agilent)
         sleep(1)
         window.write_event_value('-THREAD-',count_t)
         print(['commuting',count_t])
-        count_t += 1
-    while (count_t % freq == 0):
-        window.write_event_value('-THREAD-',count_t)
-        break 
-        
+        count_t += 1    
+    if (count_t > 0):
+        while (count_t % freq != 0):
+            if stop():
+                #agilentOutputOff(agilent)
+                break
+            #agilentOutputOn(agilent)
+            sleep(1)
+            #agilentOutputOff(agilent)
+            sleep(1)
+            window.write_event_value('-THREAD-',count_t)
+            print(['commuting',count_t])
+            count_t += 1
+        while (count_t % freq == 0):
+            #agilentOutputOn(agilent)
+            sleep(1)
+            #agilentOutputOff(agilent)
+            sleep(1)
+            window.write_event_value('-THREAD-',count_t)
+            print(['commuting',count_t])
+            count_t += 1
+            print(['commuting',count_t])
+            break 
 
-
-
-
-
-
-
+def threadAnalyse(window,stop):
+    for i in ['REL1','REL2','REL3','REL4','REL5','REL6','REL7','REL8','REL9','REL10']:
+        for j in ['T1','T3','T5']:
+            msg_outlier = [i,'&',j]
+            nameFILE = values['-File-'] + "/"+ "mesure_"+ i + "_" + j +".csv"
+            nameFILE = os.path.normpath(nameFILE)
+            with open(nameFILE,newline='') as csvfile:
+                dataTracer = csv.reader(csvfile, delimiter =',')
+                X_val = []
+                Y_val = []
+                for row in dataTracer:
+                    try:
+                        dataRow = row[0]
+                        dataRow = dataRow.replace('\"','')
+                        dataRow = dataRow.split(',')
+                        Y_int = [float(y) for y in dataRow][1:]
+                        if len(Y_int) != 0:
+                            X_val.append([float(x) for x in dataRow][0])
+                            Y_val.append(sum(Y_int)/len(Y_int))
+                    except:
+                        continue
+                Y_np = np.array(Y_val)
+                std_cal = np.std(Y_np)
+                mean_cal = np.mean(Y_np)
+                for iter in range(len(Y_np)):
+                    if (Y_np[iter] <= (mean_cal-3*std_cal)) or (Y_np[iter]>=(mean_cal+3*std_cal)):
+                        msg_outlier.append(Y_np[iter])
+            window.write_event_value('-THREAD_ANALYSE-',msg_outlier)
 
 while True:             # Event Loop
-    event, values = window.read(timeout=50)
+    event, values = window.read(timeout=500)
 
     # if event == sg.TIMEOUT_KEY:
     #     continue 
@@ -1060,6 +1106,9 @@ while True:             # Event Loop
     if event in (sg.WINDOW_CLOSED, 'Exit'):         # checks if user wants to exit
         break
 
+    if event == 'Debug':
+        embed()
+
 
     if (event == 'Start') or mesure_is_finished:
         stop_threads = False
@@ -1079,24 +1128,31 @@ while True:             # Event Loop
     if event == 'Stop':
         stop_threads = True
         stop_mesure = True
+        stop_analyse = True
         window['Start'].update(disabled=False)
         window['-app_state-'].update('Clear')
         window['-app_state-'].update(button_color=('white','green'))
         mesure_is_finished = False
-    # if ((count+1) % int(values['-freq-']) == 0) and not(t1.is_alive()):
-    """ if not(t1_state):
+    if (count > 0 ) and (count % int(values['-freq-']) == 0) and not(t1.is_alive()):
         # Effectuer les mesures
-        #window['-nbr_commutations-'].update(value=count)
+        window['-nbr_commutations-'].update(value=count)
         window['-app_state-'].update('Busy')
         window['-app_state-'].update(button_color=('white','red'))
-        sleep(2)
+        window.refresh()
+        iter = 0
+        while (iter < 20000000):
+            iter += 1
         mesure_is_finished = True
-        count += 1 """
-        
-"""         for i in ['REL1','REL2','REL3','REL4','REL5','REL6','REL7','REL8','REL9','REL10']:
+        count += 1
+        """ 
+        for i in ['REL1','REL2','REL3','REL4','REL5','REL6','REL7','REL8','REL9','REL10']:
             for j in ['T1','T3','T5']:
                 # The Mesure will block the whole app until finished
-                mesure = nothreadMesure(fluke,mux,[i,j],lambda:stop_mesure)
+                #mesure = nothreadMesure(fluke,mux,[i,j],lambda:stop_mesure)
+                t_mesure = threading.Thread(target=threadMesure,args=(window,fluke,mux,[i,j],lambda: stop_mesure),daemon = True)
+                t_mesure.start()
+                if event  == THREAD_MESURE:
+                    mesure, mesure_is_finished = values[THREAD_MESURE]
                 #mesure_sauvegarde = [count] + [sum([float(x) for x in mesure.split(",")])/len(mesure.split(","))]
                 try:
                     mesure_sauvegarde = [count] + [float(x) for x in mesure.split(",")]
@@ -1104,14 +1160,56 @@ while True:             # Event Loop
                     mesure_sauvegarde = [count] + [mesure] # in case of an 'error' is returned in mesure
 
                 # Write mesure to file for each REL-Contact
-                filename = values('-File-')+"mesure_"+ i + j +".csv"
+                filename = values('-File-')+"mesure_"+ i + "_" + j +".csv"
                 with open(filename,"a",newline="") as f:
                     writer = csv.writer(f)
-                    writer.writerrows(mesure_sauvegarde) """
+                    writer.writerrows(mesure_sauvegarde)
+ """
+    if event == 'Effacer':
+        if 'fig_canvas_agg' in locals():
+            # delete existing fig before draw new ones
+            # anticipate multiple clicks on Tracer button
+            delete_figure_agg(fig_canvas_agg)
 
+    if event == 'Tracer':
+        nameREL = values['-relais_select-']
+        nameCON = values['-contact_select-']
+        nameFILE = values['-File-'] + "/"+ "mesure_"+ nameREL + "_" + nameCON +".csv"
+        nameFILE = os.path.normpath(nameFILE)
+        with open(nameFILE,newline='') as csvfile:
+            dataTracer = csv.reader(csvfile, delimiter =',')
+            X_val = []
+            Y_val = []
+            for row in dataTracer:
+                try:
+                    dataRow = row[0]
+                    dataRow = dataRow.replace('\"','')
+                    dataRow = dataRow.split(',')
+                    Y_int = [float(y) for y in dataRow][1:]
+                    if len(Y_int) != 0:
+                        X_val.append([float(x) for x in dataRow][0])
+                        Y_val.append(sum(Y_int)/len(Y_int))
+                except:
+                    continue
+        if 'fig_canvas_agg' in locals():
+            # delete existing fig before draw new ones
+            # anticipate multiple clicks on Tracer button
+            delete_figure_agg(fig_canvas_agg)
 
-        #t1.join()
+        fig = matplotlib.figure.Figure(figsize=(6, 4), dpi=70)
+        ax = fig.add_subplot(111)
+        ax.plot(X_val,Y_val,marker=".", color = 'blue')
+        ax.set_facecolor('lightgrey')
+        ax.grid(True,linestyle='--',color = 'white')
+        ax.set_xlabel('Commutations')
+        ax.set_ylabel(r'Résistance $(\Omega)$')
+        ax.set_ylim(0,2)
+        ax.get_xaxis().set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: (format(int(x),',')).replace(',',' ')))
+        ax.set_title("Evolution de la résistance de contact " + nameCON + " du relais "+nameREL)
+        fig_canvas_agg = draw_figure(window['-canvas-'].TKCanvas,fig)
+        window.refresh()
 
+    if event == 'Analyser':
 
 
 
